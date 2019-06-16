@@ -44,7 +44,7 @@ namespace
 
     void dump_state()
     {
-#if 0
+#if 1
         std::cout << "skip_ranges: {";
         if (!context->skip_ranges.empty())
         {
@@ -96,7 +96,7 @@ void fault_injection_point()
 
 void faulty_run(std::function<void ()> const& f)
 {
-#if 1
+#if 0
     f();
 #else
     assert(!context);
