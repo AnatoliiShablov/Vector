@@ -4,6 +4,7 @@
 #include "vector.h"
 
 typedef vector<counted> container;
+typedef vector<int> container_int;
 
 TEST(correctness, default_ctor)
 {
@@ -49,7 +50,7 @@ TEST(correctness, push_back_big)
     {
         counted::no_new_instances_guard g;
         container c;
-        
+
         for (size_t i = 0; i != 20; ++i)
         {
             int val = (i + 42) % 13;
@@ -212,7 +213,7 @@ TEST(correctness, subscript)
         c.push_back(16);
         c.push_back(23);
         c.push_back(42);
-        
+
         EXPECT_EQ(4, c[0]);
         EXPECT_EQ(8, c[1]);
         EXPECT_EQ(15, c[2]);
@@ -516,7 +517,7 @@ TEST(correctness, const_front_back_ref)
         c.push_back(1);
         c.push_back(2);
         c.push_back(3);
-        
+
         container const& cc = c;
         EXPECT_EQ(&c.front(), &cc[0]);
         EXPECT_EQ(&c.back(), &cc[2]);
@@ -530,7 +531,7 @@ TEST(correctness, data_empty)
         counted::no_new_instances_guard g;
         container c;
         c.data();
-        
+
         container const& cc = c;
         cc.data();
     });
@@ -544,7 +545,7 @@ TEST(correctness, data_small)
         container c;
         c.push_back(42);
         EXPECT_EQ(&c[0], c.data());
-        
+
         container const& cc = c;
         EXPECT_EQ(&cc[0], cc.data());
     });
@@ -561,7 +562,7 @@ TEST(correctness, data)
         c.push_back(3);
         c.push_back(4);
         EXPECT_EQ(&c[0], c.data());
-        
+
         container const& cc = c;
         EXPECT_EQ(&cc[0], cc.data());
     });
@@ -575,7 +576,7 @@ TEST(correctness, push_back_element_of_itself)
         container c;
         c.push_back(0);
         c.push_back(1);
-        
+
         for (size_t i = 0; i != 20; ++i)
             c.push_back(*(c.end() - 2));
 
@@ -596,7 +597,7 @@ TEST(correctness, push_back_element_of_itself_single)
         c.push_back(c.front());
         c.push_back(c.front());
         c.push_back(c.front());
-        
+
         for (size_t i = 0; i != c.size(); ++i)
             EXPECT_EQ(42, c[i]);
     });
@@ -1006,7 +1007,7 @@ TEST(exceptions, reserve)
     faulty_run([]
     {
         counted::no_new_instances_guard g;
-        container c;
+        container_int c;
         c.reserve(10);
 
         EXPECT_NO_THROW(
