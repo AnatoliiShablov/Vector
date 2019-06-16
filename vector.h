@@ -11,14 +11,32 @@
 
 template<typename T>
 class base_vector {
-    struct data_with_info {
+    struct data_storage {
         size_t size_;
         size_t capacity_;
-        size_t masters_;
+        size_t number_of_masters_;
         T data_[];
     };
 
-    data_with_info *data_;
+    data_storage *storage_;
+
+    void broot_copy() {
+        if (!storage_ || storage_->number_of_masters_ == 1) {
+            return;
+        }
+        auto *new_storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + storage_->capacity_ * sizeof(T)));
+        try {
+            std::uninitialized_copy(cbegin(), cend(), new_storage_->data_);
+        } catch (...) {
+            operator delete(new_storage_);
+            throw;
+        }
+        new_storage_->size_ = storage_->size_;
+        new_storage_->capacity_ = storage_->capacity_;
+        new_storage_->number_of_masters_ = 1;
+        --storage_->number_of_masters_;
+        storage_ = new_storage_;
+    }
 
  public:
     typedef T value_type;
@@ -31,200 +49,117 @@ class base_vector {
 
     typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
 
-    base_vector() noexcept : data_(nullptr) {}
+    typedef T &reference;
 
-    base_vector(base_vector const &rhs) noexcept : data_(rhs.data_) {
-        if (data_) {
-            ++data_->masters_;
+    typedef T const &const_reference;
+
+    typedef T *pointer;
+
+    typedef T const *const_pointer;
+
+    base_vector() noexcept : storage_(nullptr) {}
+
+    base_vector(base_vector const &rhs) noexcept : storage_(rhs.storage_) {
+        if (storage_) {
+            ++storage_->number_of_masters_;
         }
     }
 
     template<typename InputIterator>
     base_vector(InputIterator first, InputIterator last) {
-        size_t sz = std::distance(first, last);
-        if (sz == 0) {
-            data_(nullptr);
+        auto count = std::distance(first, last);
+        if (count < 1) {
+            storage_ = nullptr;
         } else {
-            data_ = static_cast<data_with_info *>(operator new(sizeof(data_with_info) + sizeof(T) * sz));
-            data_->size_ = sz;
-            data_->capacity_ = sz;
-            data_->masters_ = 1;
-            std::uninitialized_copy(first, last, data_->data_);
+            storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + count * sizeof(T)));
+            try {
+                std::uninitialized_copy(first, last, storage_->data_);
+            } catch (...) {
+                operator delete(storage_);
+                storage_ = nullptr;
+                throw;
+            }
+            storage_->size_ = count;
+            storage_->capacity_ = count;
+            storage_->number_of_masters_ = 1;
+        }
+    }
+
+    base_vector(size_t count, T const &item) {
+        if (count < 1) {
+            storage_ = nullptr;
+        } else {
+            storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + count * sizeof(T)));
+            try {
+                std::uninitialized_fill_n(storage_->data_, count, item);
+            } catch (...) {
+                operator delete(storage_);
+                storage_ = nullptr;
+                throw;
+            }
+            storage_->size_ = count;
+            storage_->capacity_ = count;
+            storage_->number_of_masters_ = 1;
         }
     }
 
     base_vector &operator=(base_vector const &rhs) noexcept {
-        if (data_ == rhs.data_) {
+        if (rhs.storage_ == storage_) {
             return *this;
         }
-        if (data_) {
-            --data_->masters_;
-            if (!data_->masters_) {
-                for (size_t i = 0; i < data_->size_; ++i) {
-                    data_->data_[i].~T();
-                }
-                operator delete(data_);
+        if (storage_) {
+            if (storage_->number_of_masters_ == 1) {
+                std::destroy(begin(), end());
+                operator delete(storage_);
+            } else {
+                --storage_->number_of_masters_;
             }
         }
-        data_ = rhs.data_;
-        if (data_) {
-            ++data_->masters_;
+        storage_ = rhs.storage_;
+        if (storage_) {
+            ++storage_->number_of_masters_;
         }
         return *this;
     }
 
     template<typename InputIterator>
     void assign(InputIterator first, InputIterator last) {
-        size_t sz = std::distance(first, last);
-        if (data_ && data_->masters_ == 1 && data_->capacity_ >= sz) {
-            for (size_t i = 0; i < data_->size_; ++i) {
-                data_->data_[i].~T();
-            }
-            std::uninitialized_copy(first, last, data_->data_);
-            data_->size_ = sz;
-            return;
-        }
-        data_with_info *new_data = nullptr;
-        if (sz) {
-            new_data = static_cast<data_with_info *>(operator new(sizeof(data_with_info) + sz * sizeof(T)));
-            std::uninitialized_copy(first, last, new_data->data_);
-            new_data->size_ = sz;
-            new_data->capacity_ = sz;
-            new_data->masters_ = 1;
-        }
-        auto old_data = data_;
-        data_ = new_data;
-        if (old_data) {
-            --old_data->masters_;
-            if (!old_data->masters_) {
-                for (size_t i = 0; i < old_data->size_; ++i) {
-                    old_data->data_[i].~T();
-                }
-                operator delete(old_data);
-            }
-        }
+        *this = base_vector(first, last);
     }
 
-    T const &operator[](size_t i) const {
-        return data_->data_[i];
+    pointer data() {
+        broot_copy();
+        return storage_ ? storage_->data_ : nullptr;
     }
 
-    T &operator[](size_t i) {
-        if (data_->masters_ != 1) {
-            assign(cbegin(), cend());
-        }
-        return data_->data_[i];
-    }
-
-    T const &front() const {
-        return operator[](0);
-    }
-
-    T const &back() const {
-        return operator[](data_->size_ - 1);
-    }
-
-    T &front() {
-        return operator[](0);
-    }
-
-    T &back() {
-        return operator[](data_->size_ - 1);
-    }
-
-    void push_back(T const &item) {
-
-        if (!data_) {
-            data_ = static_cast<data_with_info *>(operator new(sizeof(data_with_info) + 8 * sizeof(T)));
-            data_->size_ = 0;
-            data_->capacity_ = 8;
-            data_->masters_ = 1;
-        }
-        if (data_->size_ == data_->capacity_) {
-            auto new_data = static_cast<data_with_info *>(operator new(sizeof(data_with_info) + capacity() * 2 * sizeof(T)));
-            std::uninitialized_copy(begin(), end(), new_data->data_);
-            new_data->size_ = data_->size_;
-            new_data->capacity_ = capacity() * 2;
-            new_data->masters_ = 1;
-            auto old_data = data_;
-            data_ = new_data;
-
-            new(&data_->data_[data_->size_++]) T(item);
-
-            --old_data->masters_;
-            if (!old_data->masters_) {
-                for (size_t i = 0; i < old_data->size_; ++i) {
-                    old_data->data_[i].~T();
-                }
-                operator delete(old_data);
-            }
-            return;
-        }
-        if (data_->masters_ != 1) {
-            assign(cbegin(), cend());
-        }
-        new(&data_->data_[data_->size_++]) T(item);
-    }
-
-    void pop_back() {
-        if (data_->masters_ != 1) {
-            assign(cbegin(), cend() - 1);
-        } else {
-            data_->data_[--data_->size_].~T();
-        }
-    }
-
-    T const *data() const noexcept {
-        if (!data_) {
-            return nullptr;
-        }
-        return data_->data_;
-    }
-
-    T *data() {
-        if (!data_) {
-            return nullptr;
-        }
-        if (data_->masters_ != 1) {
-            assign(cbegin(), cend());
-        }
-        return data_->data_;
+    const_pointer data() const noexcept {
+        return storage_ ? storage_->data_ : nullptr;
     }
 
     iterator begin() {
-        if (!data_) {
-            return nullptr;
-        }
-        if (data_->masters_ != 1) {
-            assign(cbegin(), cend());
-        }
-        return data_->data_;
+        broot_copy();
+        return storage_ ? storage_->data_ : nullptr;
     }
 
     iterator end() {
-        if (!data_) {
-            return nullptr;
-        }
-        if (data_->masters_ != 1) {
-            assign(cbegin(), cend());
-        }
-        return data_->data_ + data_->size_;
+        broot_copy();
+        return storage_ ? storage_->data_ + storage_->size_ : nullptr;
     }
 
     const_iterator begin() const noexcept {
-        return data_ ? data_->data_ : nullptr;
+        return storage_ ? storage_->data_ : nullptr;
     }
 
     const_iterator end() const noexcept {
-        return data_ ? (data_->data_ + data_->size_) : nullptr;
+        return storage_ ? storage_->data_ + storage_->size_ : nullptr;
     }
 
     const_iterator cbegin() const noexcept {
-        return data_ ? data_->data_ : nullptr;
+        return storage_ ? storage_->data_ : nullptr;
     }
 
     const_iterator cend() const noexcept {
-        return data_ ? (data_->data_ + data_->size_) : nullptr;
+        return storage_ ? storage_->data_ + storage_->size_ : nullptr;
     }
 
     reverse_iterator rbegin() {
@@ -236,147 +171,343 @@ class base_vector {
     }
 
     const_reverse_iterator rbegin() const noexcept {
-        return std::make_reverse_iterator(end());
+        return std::make_reverse_iterator(cend());
     }
 
     const_reverse_iterator rend() const noexcept {
-        return std::make_reverse_iterator(begin());
+        return std::make_reverse_iterator(cbegin());
+    }
+
+    const_reverse_iterator crbegin() const noexcept {
+        return std::make_reverse_iterator(cend());
+    }
+
+    const_reverse_iterator crend() const noexcept {
+        return std::make_reverse_iterator(cbegin());
+    }
+
+    reference operator[](size_t pos) {
+        broot_copy();
+        return storage_->data_[pos];
+    }
+
+    const_reference operator[](size_t pos) const {
+        return storage_->data_[pos];
+    }
+
+    reference front() {
+        return operator[](0);
+    }
+
+    const_reference front() const {
+        return operator[](0);
+    }
+
+    reference back() {
+        return operator[](storage_->size_ - 1);
+    }
+
+    const_reference back() const {
+        return operator[](storage_->size_ - 1);
     }
 
     bool empty() const noexcept {
-        return data_ ? (data_->size_ == 0) : true;
+        return storage_ ? storage_->size_ == 0 : true;
     }
 
     size_t size() const noexcept {
-        return data_ ? data_->size_ : 0;
+        return storage_ ? storage_->size_ : 0;
     }
 
     size_t capacity() const noexcept {
-        return data_ ? data_->capacity_ : 0;
-    }
-
-    void resize(size_t new_size) {
-        if (size() == new_size) {
-            return;
-        }
-        if (!data_) {
-            if (new_size) {
-                data_ = operator new(sizeof(data_with_info) + new_size * (sizeof(T)));
-                for (size_t i = 0; i < new_size; i++) {
-                    data_->data_[i] = T();
-                }
-            }
-            return;
-        }
-
-        if (data_->capacity_ < new_size) {
-            reserve(new_size);
-        }
-        if (data_->masters_ != 1) {
-            if (new_size < size()) {
-                assign(cbegin(), cbegin() + new_size);
-            } else {
-                assign(cbegin(), cend());
-            }
-        }
-        while (size() > new_size) {
-            pop_back();
-        }
-        while (size() < new_size) {
-            push_back(T());
-        }
-    }
-
-    void resize(size_t new_size, T const &item) {
-        if (size() == new_size) {
-            return;
-        }
-
-        if (data_->capacity_ < new_size) {
-            reserve(new_size);
-        }
-        if (data_->masters_ != 1) {
-            if (new_size < size()) {
-                assign(cbegin(), cbegin() + new_size);
-            } else {
-                assign(cbegin(), cend());
-            }
-        }
-        while (size() > new_size) {
-            pop_back();
-        }
-        while (size() < new_size) {
-            push_back(item);
-        }
+        return storage_ ? storage_->capacity_ : 0;
     }
 
     void reserve(size_t new_capacity) {
         if (new_capacity <= capacity()) {
             return;
         }
-        if (!data_) {
-            data_ = static_cast<data_with_info *>(operator new(sizeof(data_with_info) + new_capacity * (sizeof(T))));
-            data_->size_ = 0;
-            data_->capacity_ = new_capacity;
-            data_->masters_ = 1;
+        auto *new_storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + new_capacity * sizeof(T)));
+        try {
+            std::uninitialized_copy(cbegin(), cend(), new_storage_->data_);
+        } catch (...) {
+            operator delete(new_storage_);
+            throw;
+        }
+        if (!storage_) {
+            new_storage_->size_ = 0;
+            new_storage_->capacity_ = new_capacity;
+            new_storage_->number_of_masters_ = 1;
+            storage_ = new_storage_;
             return;
         }
-        auto new_data = static_cast<data_with_info *>(operator new(sizeof(data_with_info) + new_capacity * sizeof(T)));
-        std::uninitialized_copy(begin(), end(), new_data->data_);
-        new_data->size_ = data_->size_;
-        new_data->capacity_ = new_capacity;
-        new_data->masters_ = 1;
-        auto old_data = data_;
-        data_ = new_data;
+        new_storage_->size_ = storage_->size_;
+        new_storage_->capacity_ = new_capacity;
+        new_storage_->number_of_masters_ = 1;
 
-        --old_data->masters_;
-        if (!old_data->masters_) {
-            for (size_t i = 0; i < old_data->size_; ++i) {
-                old_data->data_[i].~T();
+        if (storage_->number_of_masters_ == 1) {
+            std::destroy(begin(), end());
+            operator delete(storage_);
+        } else {
+            --storage_->number_of_masters_;
+        }
+        storage_ = new_storage_;
+    }
+
+    void resize(size_t new_size) {
+        if (new_size == size()) {
+            return;
+        }
+        if (new_size < size()) {
+            if (storage_->number_of_masters_ > 1) {
+                auto *new_storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + storage_->capacity_ * sizeof(T)));
+                try {
+                    std::uninitialized_copy(cbegin(), cbegin() + new_size, new_storage_->data_);
+                } catch (...) {
+                    operator delete(new_storage_);
+                    throw;
+                }
+                new_storage_->size_ = new_size;
+                new_storage_->capacity_ = storage_->capacity_;
+                new_storage_->number_of_masters_ = 1;
+                --storage_->number_of_masters_;
+                storage_ = new_storage_;
+            } else {
+                std::destroy(begin() + new_size, end());
+                storage_->size_ = new_size;
             }
-            operator delete(old_data);
+        } else {
+            size_t new_capacity = std::max(new_size, capacity());
+            if (!storage_ || storage_->number_of_masters_ > 1 || new_capacity > capacity()) {
+                auto *new_storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + new_capacity * sizeof(T)));
+                try {
+                    std::uninitialized_copy(cbegin(), cbegin(), new_storage_->data_);
+                } catch (...) {
+                    operator delete(new_storage_);
+                    throw;
+                }
+                try {
+                    std::fill_n(new_storage_->data_ + size(), new_size - size(), T());
+                } catch (...) {
+                    std::destroy(new_storage_->data_, new_storage_->data_ + size());
+                    operator delete(new_storage_);
+                    throw;
+                }
+                new_storage_->size_ = new_size;
+                new_storage_->capacity_ = new_capacity;
+                new_storage_->number_of_masters_ = 1;
+                if (storage_) {
+                    if (storage_->number_of_masters_ == 1) {
+                        std::destroy(begin(), end());
+                        operator delete(storage_);
+                    } else {
+                        --storage_->number_of_masters_;
+                    }
+                }
+                storage_ = new_storage_;
+            } else {
+                std::destroy(begin() + new_size, end());
+                storage_->size_ = new_size;
+            }
+        }
+    }
+
+    void resize(size_t new_size, T const &item) {
+        if (new_size == size()) {
+            return;
+        }
+        if (new_size < size()) {
+            if (storage_->number_of_masters_ > 1) {
+                auto *new_storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + storage_->capacity_ * sizeof(T)));
+                try {
+                    std::uninitialized_copy(cbegin(), cbegin() + new_size, new_storage_->data_);
+                } catch (...) {
+                    operator delete(new_storage_);
+                    throw;
+                }
+                new_storage_->size_ = new_size;
+                new_storage_->capacity_ = storage_->capacity_;
+                new_storage_->number_of_masters_ = 1;
+                --storage_->number_of_masters_;
+                storage_ = new_storage_;
+            } else {
+                std::destroy(begin() + new_size, end());
+                storage_->size_ = new_size;
+            }
+        } else {
+            size_t new_capacity = std::max(new_size, capacity());
+            if (!storage_ || storage_->number_of_masters_ > 1 || new_capacity > capacity()) {
+                auto *new_storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + new_capacity * sizeof(T)));
+                try {
+                    std::uninitialized_copy(cbegin(), cbegin(), new_storage_->data_);
+                } catch (...) {
+                    operator delete(new_storage_);
+                    throw;
+                }
+                try {
+                    std::fill_n(new_storage_->data_ + size(), new_size - size(), item);
+                } catch (...) {
+                    std::destroy(new_storage_->data_, new_storage_->data_ + size());
+                    operator delete(new_storage_);
+                    throw;
+                }
+                new_storage_->size_ = new_size;
+                new_storage_->capacity_ = new_capacity;
+                new_storage_->number_of_masters_ = 1;
+                if (storage_) {
+                    if (storage_->number_of_masters_ == 1) {
+                        std::destroy(begin(), end());
+                        operator delete(storage_);
+                    } else {
+                        --storage_->number_of_masters_;
+                    }
+                }
+                storage_ = new_storage_;
+            } else {
+                std::destroy(begin() + new_size, end());
+                storage_->size_ = new_size;
+            }
         }
     }
 
     void shrink_to_fit() {
-        if (capacity() == size()) {
+        if (size() == capacity()) {
             return;
         }
-        if (data_->masters_ != 1) {
-            assign(cbegin(), cend());
+        if (size() == 0) {
+            if (storage_->number_of_masters_ == 1) {
+                std::destroy(begin(), end());
+                operator delete(storage_);
+            } else {
+                --storage_->number_of_masters_;
+                storage_ = nullptr;
+            }
             return;
         }
-        data_with_info *new_data = nullptr;
+        auto *new_storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + storage_->size_ * sizeof(T)));
+        try {
+            std::uninitialized_copy(cbegin(), cend(), new_storage_->data_);
+        } catch (...) {
+            operator delete(new_storage_);
+            throw;
+        }
+        new_storage_->size_ = storage_->size_;
+        new_storage_->capacity_ = storage_->size_;
+        new_storage_->number_of_masters_ = 1;
 
-        if (size()) {
-            new_data = static_cast<data_with_info *>(operator new(sizeof(data_with_info) + size() * sizeof(T)));
-            std::uninitialized_copy(begin(), end(), new_data->data_);
-            new_data->size_ = size();
-            new_data->capacity_ = size();
-            new_data->masters_ = 1;
+        if (storage_->number_of_masters_ == 1) {
+            std::destroy(begin(), end());
+            operator delete(storage_);
+        } else {
+            --storage_->number_of_masters_;
         }
-        auto old_data = data_;
-        data_ = new_data;
-        for (size_t i = 0; i < data_->size_; ++i) {
-            old_data->data_[i].~T();
-        }
-        operator delete(old_data);
+        storage_ = new_storage_;
     }
 
     void clear() {
         resize(0);
     }
 
-    iterator insert(const_iterator pos, T const &val) {
-        size_t index = std::distance(const_cast<const_iterator>(begin()), pos);
-        if (index == size()) {
-            push_back(val);
-        } else {
-            push_back(back());
-            for (auto i = size() - 2; i != index; --i) {
-                data_->data_[i] = data_->data_[i - 1];
+    void push_back(T const &item) {
+        if (size() == capacity() || storage_->number_of_masters_ != 1) {
+            size_t new_capacity = (size() == capacity() ? (capacity() ? capacity() * 2 : 8) : capacity());
+            auto *new_storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + new_capacity * sizeof(T)));
+            try {
+                std::uninitialized_copy(cbegin(), cend(), new_storage_->data_);
+            } catch (...) {
+                operator delete(new_storage_);
+                throw;
             }
-            data_->data_[index] = val;
+            try {
+                new(new_storage_->data_ + size()) T(item);
+            } catch (...) {
+                std::destroy(new_storage_->data_, new_storage_->data_ + size());
+                operator delete(new_storage_);
+                throw;
+            }
+
+            if (!storage_) {
+                new_storage_->size_ = 1;
+                new_storage_->capacity_ = new_capacity;
+                new_storage_->number_of_masters_ = 1;
+                storage_ = new_storage_;
+                return;
+            }
+            new_storage_->size_ = storage_->size_ + 1;
+            new_storage_->capacity_ = new_capacity;
+            new_storage_->number_of_masters_ = 1;
+
+            if (storage_->number_of_masters_ == 1) {
+                std::destroy(begin(), end());
+                operator delete(storage_);
+            } else {
+                --storage_->number_of_masters_;
+            }
+            storage_ = new_storage_;
+        } else {
+            try {
+                new(storage_->data_ + storage_->size_) T(item);
+                ++storage_->size_;
+            } catch (...) {
+                throw;
+            }
+        }
+    }
+
+    void pop_back() {
+        broot_copy();
+        storage_->data_[--storage_->size_].~T();
+    }
+
+    iterator insert(const_iterator pos, T const &item) {
+        size_t index = pos - cbegin();
+        if (pos == cend()) {
+            push_back(item);
+            return begin() + index;
+        }
+        if (size() == capacity() || storage_->number_of_masters_ > 1) {
+            size_t new_capacity = (size() == capacity() ? (capacity() ? capacity() * 2 : 8) : capacity());
+
+            auto *new_storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + new_capacity * sizeof(T)));
+
+            try {
+                std::uninitialized_copy(cbegin(), pos, new_storage_->data_);
+            } catch (...) {
+                operator delete(new_storage_);
+                throw;
+            }
+            try {
+                new(new_storage_->data_ + index) T(item);
+            } catch (...) {
+                std::destroy(new_storage_->data_, new_storage_->data_ + index);
+                operator delete(new_storage_);
+                throw;
+            }
+            try {
+                std::uninitialized_copy(pos, cend(), new_storage_->data_ + index + 1);
+            } catch (...) {
+                std::destroy(new_storage_->data_, new_storage_->data_ + index + 1);
+                operator delete(new_storage_);
+                throw;
+            }
+
+            new_storage_->size_ = storage_->size_ + 1;
+            new_storage_->capacity_ = new_capacity;
+            new_storage_->number_of_masters_ = 1;
+
+            if (storage_->number_of_masters_ == 1) {
+                std::destroy(begin(), end());
+                operator delete(storage_);
+            } else {
+                --storage_->number_of_masters_;
+            }
+            storage_ = new_storage_;
+            return begin() + index;
+        }
+        std::uninitialized_copy(&item, &item + 1, end());
+        ++storage_->size_;
+        for (iterator r = end() - 1; r > begin() + index; r--) {
+            std::iter_swap(r, r - 1);
         }
         return begin() + index;
     }
@@ -386,46 +517,97 @@ class base_vector {
     }
 
     iterator erase(const_iterator first, const_iterator last) {
-        if (data_->masters_ != 1) {
-            assign(cbegin(), cend());
+        size_t indexl = first - cbegin();
+        size_t indexr = last - cbegin();
+        if (first == last) {
+            return begin() + indexl;
         }
-        size_t indexl = std::distance(const_cast<const_iterator>(begin()), first);
-        size_t indexr = std::distance(const_cast<const_iterator>(begin()), last);
-        size_t dist = indexr - indexl;
-        for (size_t i = indexl; i < size() - dist; i++) {
-            data_->data_[i] = data_->data_[i + dist];
+        if (last == cend()) {
+            broot_copy();
+            std::destroy(begin() + indexl, end());
+            storage_->size_ -= (indexr - indexl);
+            return begin() + indexl;
         }
-        for (size_t i = 0; i < dist; i++) {
-            pop_back();
+
+        if (storage_->number_of_masters_ != 1) {
+            auto *new_storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + storage_->capacity_ * sizeof(T)));
+
+            try {
+                std::uninitialized_copy(cbegin(), first, new_storage_->data_);
+            } catch (...) {
+                operator delete(new_storage_);
+                throw;
+            }
+            try {
+                std::uninitialized_copy(last, cend(), new_storage_->data_ + indexl);
+            } catch (...) {
+                std::destroy(new_storage_->data_, new_storage_->data_ + indexl);
+                operator delete(new_storage_);
+                throw;
+            }
+
+            new_storage_->size_ = storage_->size_ - (indexr - indexl);
+            new_storage_->capacity_ = storage_->capacity_;
+            new_storage_->number_of_masters_ = 1;
+
+            if (storage_->number_of_masters_ == 1) {
+                std::destroy(begin(), end());
+                operator delete(storage_);
+            } else {
+                --storage_->number_of_masters_;
+            }
+            storage_ = new_storage_;
+            return begin() + indexl;
         }
+        for (iterator l = begin() + indexl, r = begin() + indexr; r < end(); l++, r++) {
+            *l = *r;
+        }
+        std::destroy(begin() + size() - (indexr - indexl), end());
+        storage_->size_ -= (indexr - indexl);
         return begin() + indexl;
     }
 
     friend bool operator==(base_vector const &lhs, base_vector const &rhs) {
-        if (lhs.data_ == rhs.data_) {
+        if (lhs.storage_ == rhs.storage_) {
             return true;
         }
-        if (lhs.size() != rhs.size()) {
+        return std::equal(lhs.cbegin(), lhs.cend(), rhs.cbegin(), rhs.cend());
+    }
+
+    friend bool operator!=(base_vector const &lhs, base_vector const &rhs) {
+        return !(lhs == rhs);
+    }
+
+    friend bool operator<(base_vector const &lhs, base_vector const &rhs) {
+        if (lhs.storage_ == rhs.storage_) {
             return false;
         }
-        auto ld = lhs.data();
-        auto rd = rhs.data();
-        for (size_t i = 0; i < lhs.size(); i++) {
-            if (ld[i] != rd[i]) {
-                return false;
-            }
-        }
-        return true;
+        return std::lexicographical_compare(lhs.begin(), lhs.end(), rhs.begin(), rhs.end());
+    }
+
+    friend bool operator>(base_vector const &lhs, base_vector const &rhs) {
+        return rhs < lhs;
+    }
+
+    friend bool operator<=(base_vector const &lhs, base_vector const &rhs) {
+        return !(lhs > rhs);
+    }
+
+    friend bool operator>=(base_vector const &lhs, base_vector const &rhs) {
+        return !(lhs < rhs);
+    }
+
+    friend void swap(base_vector &lhs, base_vector &rhs) noexcept {
+        std::swap(lhs.storage_, rhs.storage_);
     }
 
     ~base_vector() {
-        if (data_) {
-            --data_->masters_;
-            if (!data_->masters_) {
-                for (size_t i = 0; i < size(); i++) {
-                    data_->data_[i].~T();
-                }
-                operator delete(data_);
+        if (storage_) {
+            if (storage_->number_of_masters_ == 1) {
+                std::destroy(begin(), end());
+                operator delete(storage_);
+            } else {
+                --storage_->number_of_masters_;
             }
         }
     }
@@ -446,6 +628,18 @@ class vector {
 
     typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
 
+    typedef T &reference;
+
+    typedef T const &const_reference;
+
+    typedef T *pointer;
+
+    typedef T const *const_pointer;
+
+    vector() noexcept = default;
+
+    vector(vector const &rhs) = default;
+
     template<typename InputIterator>
     vector(InputIterator first, InputIterator last) {
         if (last - first == 1) {
@@ -455,86 +649,14 @@ class vector {
         }
     }
 
+    vector &operator=(vector const &rhs) = default;
+
     template<typename InputIterator>
     void assign(InputIterator first, InputIterator last) {
-        if (first == last) {
-            if (data_.index() == 2) {
-                std::get<2>(data_).clear();
-            } else {
-                data_ = std::monostate();
-            }
-        } else if (first - last == 1) {
-            if (data_.index() == 2) {
-                std::get<2>(data_).assign(first, last);
-            } else {
-                data_ = T(*first);
-            }
-        } else {
-            if (data_.index() == 2) {
-                std::get<2>(data_).assign(first, last);
-            } else {
-                data_ = base_vector(first, last);
-            }
-        }
+        *this = vector(first, last);
     }
 
-    vector() = default;
-
-    vector(vector const &rhs) = default;
-
-    T const &operator[](size_t i) const {
-        if (data_.index() == 1) { return std::get<1>(data_); }
-        return std::get<2>(data_)[i];
-    }
-
-    T &operator[](size_t i) {
-        if (data_.index() == 1) { return std::get<1>(data_); }
-        return std::get<2>(data_)[i];
-    }
-
-    T const &front() const {
-        if (data_.index() == 1) { return std::get<1>(data_); }
-        return std::get<2>(data_).front();
-    }
-
-    T const &back() const {
-        if (data_.index() == 1) { return std::get<1>(data_); }
-        return std::get<2>(data_).back();
-    }
-
-    T &front() {
-        if (data_.index() == 1) { return std::get<1>(data_); }
-        return std::get<2>(data_).front();
-    }
-
-    T &back() {
-        if (data_.index() == 1) { return std::get<1>(data_); }
-        return std::get<2>(data_).back();
-    }
-
-    void push_back(T const &item) {
-        if (data_.index() == 0) {
-            data_ = T(item);
-        } else if (data_.index() == 1) {
-            T tmp = std::get<1>(data_);
-            base_vector<T> tmp_vec;
-            tmp_vec.push_back(std::get<1>(data_));
-            tmp_vec.push_back(item);
-            data_ = tmp_vec;
-        } else {
-            std::get<2>(data_).push_back(item);
-        }
-    }
-
-    void pop_back() {
-        if (data_.index() == 1) {
-            data_ = std::monostate();
-        } else {
-            std::get<2>(data_).pop_back();
-        }
-    }
-
-    T const *data() const noexcept {
+    pointer data() {
         if (data_.index() == 0) {
             return nullptr;
         } else if (data_.index() == 1) {
@@ -543,7 +665,7 @@ class vector {
         return std::get<2>(data_).data();
     }
 
-    T *data() {
+    const_pointer data() const noexcept {
         if (data_.index() == 0) {
             return nullptr;
         } else if (data_.index() == 1) {
@@ -568,6 +690,14 @@ class vector {
         return begin() + size();
     }
 
+    const_iterator cbegin() const noexcept {
+        return data();
+    }
+
+    const_iterator cend() const noexcept {
+        return begin() + size();
+    }
+
     reverse_iterator rbegin() {
         return std::make_reverse_iterator(end());
     }
@@ -582,6 +712,44 @@ class vector {
 
     const_reverse_iterator rend() const noexcept {
         return std::make_reverse_iterator(begin());
+    }
+
+    const_reverse_iterator crbegin() const noexcept {
+        return std::make_reverse_iterator(end());
+    }
+
+    const_reverse_iterator crend() const noexcept {
+        return std::make_reverse_iterator(begin());
+    }
+
+    reference operator[](size_t i) {
+        if (data_.index() == 1) { return std::get<1>(data_); }
+        return std::get<2>(data_)[i];
+    }
+
+    const_reference operator[](size_t i) const noexcept {
+        if (data_.index() == 1) { return std::get<1>(data_); }
+        return std::get<2>(data_)[i];
+    }
+
+    reference front() {
+        if (data_.index() == 1) { return std::get<1>(data_); }
+        return std::get<2>(data_).front();
+    }
+
+    const_reference front() const noexcept {
+        if (data_.index() == 1) { return std::get<1>(data_); }
+        return std::get<2>(data_).front();
+    }
+
+    reference back() {
+        if (data_.index() == 1) { return std::get<1>(data_); }
+        return std::get<2>(data_).back();
+    }
+
+    const_reference back() const noexcept {
+        if (data_.index() == 1) { return std::get<1>(data_); }
+        return std::get<2>(data_).back();
     }
 
     bool empty() const noexcept {
@@ -606,7 +774,27 @@ class vector {
         std::get<2>(data_).capacity();
     }
 
+    void reserve(size_t new_capacity) {
+        base_vector<T> tmp_vec;
+        if (data_.index() == 0) {
+            if (new_capacity == 0) {
+                return;
+            }
+        } else if (data_.index() == 1) {
+            if (new_capacity < 2) {
+                return;
+            }
+            tmp_vec.push_back(std::get<1>(data_));
+        } else {
+            std::get<2>(data_).reserve(new_capacity);
+            return;
+        }
+        tmp_vec.reserve(new_capacity);
+        data_ = tmp_vec;
+    }
+
     void resize(size_t new_size) {
+        base_vector<T> tmp_vec;
         if (data_.index() == 0) {
             if (new_size == 0) {
                 return;
@@ -615,7 +803,6 @@ class vector {
                 data_ = T();
                 return;
             }
-            data_ = base_vector<T>();
         } else if (data_.index() == 1) {
             if (new_size == 0) {
                 data_ = std::monostate();
@@ -624,14 +811,17 @@ class vector {
             if (new_size == 1) {
                 return;
             }
-            base_vector<T> tmp_vec;
             tmp_vec.push_back(std::get<1>(data_));
-            data_ = tmp_vec;
+        } else {
+            std::get<2>(data_).resize(new_size);
+            return;
         }
-        std::get<2>(data_).resize(new_size);
+        tmp_vec.resize(new_size);
+        data_ = tmp_vec;
     }
 
     void resize(size_t new_size, T const &item) {
+        base_vector<T> tmp_vec;
         if (data_.index() == 0) {
             if (new_size == 0) {
                 return;
@@ -640,7 +830,6 @@ class vector {
                 data_ = T(item);
                 return;
             }
-            data_ = base_vector<T>();
         } else if (data_.index() == 1) {
             if (new_size == 0) {
                 data_ = std::monostate();
@@ -649,29 +838,13 @@ class vector {
             if (new_size == 1) {
                 return;
             }
-            base_vector<T> tmp_vec;
             tmp_vec.push_back(std::get<1>(data_));
-            data_ = tmp_vec;
+        } else {
+            std::get<2>(data_).resize(new_size, item);
+            return;
         }
-        std::get<2>(data_).resize(new_size, item);
-    }
-
-    void reserve(size_t new_capacity) {
-        if (data_.index() == 0) {
-            if (new_capacity == 0) {
-                return;
-            }
-            data_ = base_vector<T>();
-        } else if (data_.index() == 1) {
-            if (new_capacity > 1) {
-                base_vector<T> tmp_vec;
-                tmp_vec.push_back(std::get<1>(data_));
-                data_ = tmp_vec;
-            } else {
-                return;
-            }
-        }
-        std::get<2>(data_).reserve(new_capacity);
+        tmp_vec.resize(new_size, item);
+        data_ = tmp_vec;
     }
 
     void shrink_to_fit() {
@@ -688,26 +861,38 @@ class vector {
         }
     }
 
+    void push_back(T const &item) {
+        if (data_.index() == 0) {
+            data_ = T(item);
+        } else if (data_.index() == 1) {
+            base_vector<T> tmp_vec;
+            tmp_vec.push_back(std::get<1>(data_));
+            tmp_vec.push_back(item);
+            data_ = tmp_vec;
+        } else {
+            std::get<2>(data_).push_back(item);
+        }
+    }
+
+    void pop_back() {
+        if (data_.index() == 1) {
+            data_ = std::monostate();
+        } else {
+            std::get<2>(data_).pop_back();
+        }
+    }
+
     iterator insert(const_iterator pos, T const &val) {
-        size_t index = pos - begin();
+        base_vector<T> tmp_vec;
+        size_t index = pos - cbegin();
         if (data_.index() == 0) {
             data_ = T(val);
             return begin();
         } else if (data_.index() == 1) {
-            if (&val == &std::get<1>(data_)) {
-                T tmp_val = val;
-                data_ = base_vector<T>();
-                std::get<2>(data_).push_back(tmp_val);
-                return std::get<2>(data_).insert(begin() + index, tmp_val);
-            }
-            T tmp_val = std::get<1>(data_);
-            data_ = base_vector<T>();
-            std::get<2>(data_).push_back(tmp_val);
-            return std::get<2>(data_).insert(begin() + index, val);
-        }
-        if (&val >= pos && &val < end()) {
-            T tmp_val = val;
-            return std::get<2>(data_).insert(begin() + index, tmp_val);
+            tmp_vec.push_back(std::get<1>(data_));
+            tmp_vec.insert(tmp_vec.cbegin() + index, val);
+            data_ = tmp_vec;
+            return begin() + index;
         }
         return std::get<2>(data_).insert(begin() + index, val);
     }
@@ -718,11 +903,9 @@ class vector {
 
     iterator erase(const_iterator first, const_iterator last) {
         if (last == first) {
-            return begin() + std::distance(const_cast<const_iterator>(begin()), first);
+            return begin() + (first - cbegin());
         }
-        if (data_.index() == 0) {
-            return begin();
-        } else if (data_.index() == 1) {
+        if (data_.index() == 1) {
             data_ = std::monostate();
             return begin();
         }
@@ -733,17 +916,7 @@ class vector {
         if (lhs.data_.index() == 2 && rhs.data_.index() == 2) {
             return std::get<2>(lhs.data_) == std::get<2>(rhs.data_);
         }
-        if (lhs.size() != rhs.size()) {
-            return false;
-        }
-        auto ld = lhs.data();
-        auto rd = rhs.data();
-        for (size_t i = 0; i < lhs.size(); i++) {
-            if (ld[i] != rd[i]) {
-                return false;
-            }
-        }
-        return true;
+        return std::equal(lhs.cbegin(), lhs.cend(), rhs.cbegin(), rhs.cend());
     }
 
     friend bool operator!=(vector const &lhs, vector const &rhs) {
@@ -751,7 +924,7 @@ class vector {
     }
 
     friend bool operator<(vector const &lhs, vector const &rhs) {
-        return std::lexicographical_compare(lhs.begin(), lhs.end(), rhs.begin(), rhs.end());
+        return std::lexicographical_compare(lhs.cbegin(), lhs.cend(), rhs.cbegin(), rhs.cend());
     }
 
     friend bool operator>(vector const &lhs, vector const &rhs) {
