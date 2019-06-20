@@ -343,7 +343,7 @@ class base_vector {
             if (!storage_ || storage_->number_of_masters_ > 1 || new_capacity > capacity()) {
                 auto *new_storage_ = create_storage(new_capacity);
                 try {
-                    std::uninitialized_copy(cbegin(), cbegin(), new_storage_->data_);
+                    std::uninitialized_copy(cbegin(), cend(), new_storage_->data_);
                 } catch (...) {
                     operator delete(new_storage_);
                     throw;
