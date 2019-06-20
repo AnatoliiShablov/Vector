@@ -20,11 +20,15 @@ class base_vector {
 
     data_storage *storage_;
 
+    inline static data_storage *create_storage(size_t capacity) {
+        return static_cast<data_storage *>(operator new(sizeof(data_storage) + capacity * sizeof(T)));
+    }
+
     void broot_copy() {
         if (!storage_ || storage_->number_of_masters_ == 1) {
             return;
         }
-        auto *new_storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + storage_->capacity_ * sizeof(T)));
+        auto *new_storage_ = create_storage(storage_->capacity_);
         try {
             std::uninitialized_copy(cbegin(), cend(), new_storage_->data_);
         } catch (...) {
@@ -71,7 +75,7 @@ class base_vector {
         if (count < 1) {
             storage_ = nullptr;
         } else {
-            storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + count * sizeof(T)));
+            storage_ = create_storage(count);
             try {
                 std::uninitialized_copy(first, last, storage_->data_);
             } catch (...) {
@@ -85,11 +89,11 @@ class base_vector {
         }
     }
 
-    base_vector(size_t count, T const &item) {
+    base_vector(size_t count, const_reference item) {
         if (count < 1) {
             storage_ = nullptr;
         } else {
-            storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + count * sizeof(T)));
+            storage_ = create_storage(count);
             try {
                 std::uninitialized_fill_n(storage_->data_, count, item);
             } catch (...) {
@@ -227,7 +231,7 @@ class base_vector {
         if (new_capacity <= capacity()) {
             return;
         }
-        auto *new_storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + new_capacity * sizeof(T)));
+        auto *new_storage_ = create_storage(new_capacity);
         try {
             std::uninitialized_copy(cbegin(), cend(), new_storage_->data_);
         } catch (...) {
@@ -260,7 +264,7 @@ class base_vector {
         }
         if (new_size < size()) {
             if (storage_->number_of_masters_ > 1) {
-                auto *new_storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + storage_->capacity_ * sizeof(T)));
+                auto *new_storage_ = create_storage(storage_->capacity_);
                 try {
                     std::uninitialized_copy(cbegin(), cbegin() + new_size, new_storage_->data_);
                 } catch (...) {
@@ -279,7 +283,7 @@ class base_vector {
         } else {
             size_t new_capacity = std::max(new_size, capacity());
             if (!storage_ || storage_->number_of_masters_ > 1 || new_capacity > capacity()) {
-                auto *new_storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + new_capacity * sizeof(T)));
+                auto *new_storage_ = create_storage(new_capacity);
                 try {
                     std::uninitialized_copy(cbegin(), cbegin(), new_storage_->data_);
                 } catch (...) {
@@ -312,13 +316,13 @@ class base_vector {
         }
     }
 
-    void resize(size_t new_size, T const &item) {
+    void resize(size_t new_size, const_reference item) {
         if (new_size == size()) {
             return;
         }
         if (new_size < size()) {
             if (storage_->number_of_masters_ > 1) {
-                auto *new_storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + storage_->capacity_ * sizeof(T)));
+                auto *new_storage_ = create_storage(storage_->capacity_);
                 try {
                     std::uninitialized_copy(cbegin(), cbegin() + new_size, new_storage_->data_);
                 } catch (...) {
@@ -337,7 +341,7 @@ class base_vector {
         } else {
             size_t new_capacity = std::max(new_size, capacity());
             if (!storage_ || storage_->number_of_masters_ > 1 || new_capacity > capacity()) {
-                auto *new_storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + new_capacity * sizeof(T)));
+                auto *new_storage_ = create_storage(new_capacity);
                 try {
                     std::uninitialized_copy(cbegin(), cbegin(), new_storage_->data_);
                 } catch (...) {
@@ -384,7 +388,7 @@ class base_vector {
             }
             return;
         }
-        auto *new_storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + storage_->size_ * sizeof(T)));
+        auto *new_storage_ = create_storage(storage_->size_);
         try {
             std::uninitialized_copy(cbegin(), cend(), new_storage_->data_);
         } catch (...) {
@@ -408,10 +412,10 @@ class base_vector {
         resize(0);
     }
 
-    void push_back(T const &item) {
-        if (size() == capacity() || storage_->number_of_masters_ != 1) {
+    void push_back(const_reference item) {
+        if (size() == capacity() || storage_->number_of_masters_ > 1) {
             size_t new_capacity = (size() == capacity() ? (capacity() ? capacity() * 2 : 8) : capacity());
-            auto *new_storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + new_capacity * sizeof(T)));
+            auto *new_storage_ = create_storage(new_capacity);
             try {
                 std::uninitialized_copy(cbegin(), cend(), new_storage_->data_);
             } catch (...) {
@@ -459,7 +463,7 @@ class base_vector {
         storage_->data_[--storage_->size_].~T();
     }
 
-    iterator insert(const_iterator pos, T const &item) {
+    iterator insert(const_iterator pos, const_reference item) {
         size_t index = pos - cbegin();
         if (pos == cend()) {
             push_back(item);
@@ -468,7 +472,7 @@ class base_vector {
         if (size() == capacity() || storage_->number_of_masters_ > 1) {
             size_t new_capacity = (size() == capacity() ? (capacity() ? capacity() * 2 : 8) : capacity());
 
-            auto *new_storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + new_capacity * sizeof(T)));
+            auto *new_storage_ = create_storage(new_capacity);
 
             try {
                 std::uninitialized_copy(cbegin(), pos, new_storage_->data_);
@@ -529,8 +533,8 @@ class base_vector {
             return begin() + indexl;
         }
 
-        if (storage_->number_of_masters_ != 1) {
-            auto *new_storage_ = static_cast<data_storage *>(operator new(sizeof(data_storage) + storage_->capacity_ * sizeof(T)));
+        if (storage_->number_of_masters_ > 1) {
+            auto *new_storage_ = create_storage(storage_->capacity_);
 
             try {
                 std::uninitialized_copy(cbegin(), first, new_storage_->data_);
@@ -820,7 +824,7 @@ class vector {
         data_ = tmp_vec;
     }
 
-    void resize(size_t new_size, T const &item) {
+    void resize(size_t new_size, const_reference item) {
         base_vector<T> tmp_vec;
         if (data_.index() == 0) {
             if (new_size == 0) {
@@ -861,7 +865,7 @@ class vector {
         }
     }
 
-    void push_back(T const &item) {
+    void push_back(const_reference item) {
         if (data_.index() == 0) {
             data_ = T(item);
         } else if (data_.index() == 1) {
@@ -882,7 +886,7 @@ class vector {
         }
     }
 
-    iterator insert(const_iterator pos, T const &val) {
+    iterator insert(const_iterator pos, const_reference val) {
         base_vector<T> tmp_vec;
         size_t index = pos - cbegin();
         if (data_.index() == 0) {

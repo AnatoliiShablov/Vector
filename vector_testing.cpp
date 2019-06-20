@@ -972,6 +972,24 @@ TEST(correctness, swap_non_empty_non_empty)
     });
 }
 
+TEST(correctness, assignment_so)
+{
+faulty_run([]
+{
+counted::no_new_instances_guard g;
+container c, c2;
+c.push_back(4);
+c2.push_back(5);
+c = c2;
+EXPECT_EQ(1u, c.size());
+EXPECT_EQ(1u, c2.size());
+EXPECT_EQ(5, c[0]);
+EXPECT_EQ(5, c2[0]);
+});
+}
+
+
+
 TEST(exceptions, nothrow_default_ctor)
 {
     faulty_run([]
@@ -1017,3 +1035,35 @@ TEST(exceptions, reserve)
         });
     });
 }
+
+
+TEST(speed, push_1000000_my)
+{
+faulty_run([]
+{
+counted::no_new_instances_guard g;
+vector<int> c;
+for(size_t i =0;i<1000000; i++) {
+c.push_back(i*2+1);
+}
+EXPECT_EQ(1000000u, c.size());
+});
+}
+
+TEST(speed, push_1000000_stl)
+{
+faulty_run([]
+{
+counted::no_new_instances_guard g;
+std::vector<int> c;
+for(size_t i =0;i<1000000; i++) {
+c.push_back(i*2+1);
+}
+EXPECT_EQ(1000000u, c.size());
+});
+}
+
+
+
+
+
