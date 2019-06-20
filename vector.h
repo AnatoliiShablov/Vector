@@ -285,7 +285,7 @@ class base_vector {
             if (!storage_ || storage_->number_of_masters_ > 1 || new_capacity > capacity()) {
                 auto *new_storage_ = create_storage(new_capacity);
                 try {
-                    std::uninitialized_copy(cbegin(), cbegin(), new_storage_->data_);
+                    std::uninitialized_copy(cbegin(), cend(), new_storage_->data_);
                 } catch (...) {
                     operator delete(new_storage_);
                     throw;
@@ -510,9 +510,10 @@ class base_vector {
         }
         std::uninitialized_copy(&item, &item + 1, end());
         ++storage_->size_;
-        for (iterator r = end() - 1; r > begin() + index; r--) {
-            std::iter_swap(r, r - 1);
-        }
+        std::rotate(begin() + index, end() - 1, end());
+//        for (iterator r = end() - 1; r > begin() + index; r--) {
+//            std::iter_swap(r, r - 1);
+//        }
         return begin() + index;
     }
 
@@ -563,9 +564,10 @@ class base_vector {
             storage_ = new_storage_;
             return begin() + indexl;
         }
-        for (iterator l = begin() + indexl, r = begin() + indexr; r < end(); l++, r++) {
-            *l = *r;
-        }
+        std::move(begin() + indexr, end(), begin() + indexl);
+//        for (iterator l = begin() + indexl, r = begin() + indexr; r < end(); l++, r++) {
+//            *l = *r;
+//        }
         std::destroy(begin() + size() - (indexr - indexl), end());
         storage_->size_ -= (indexr - indexl);
         return begin() + indexl;
