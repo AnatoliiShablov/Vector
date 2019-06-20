@@ -42,7 +42,7 @@ class base_vector {
         storage_ = new_storage_;
     }
 
- public:
+public:
     typedef T value_type;
 
     typedef T *iterator;
@@ -310,7 +310,7 @@ class base_vector {
                 }
                 storage_ = new_storage_;
             } else {
-                std::destroy(begin() + new_size, end());
+                std::fill_n(begin() + size(), new_size - size(), T());
                 storage_->size_ = new_size;
             }
         }
@@ -368,7 +368,7 @@ class base_vector {
                 }
                 storage_ = new_storage_;
             } else {
-                std::destroy(begin() + new_size, end());
+                std::fill_n(begin() + size(), new_size - size(), item);
                 storage_->size_ = new_size;
             }
         }
@@ -623,7 +623,7 @@ template<typename T>
 class vector {
     std::variant<std::monostate, T, base_vector<T>> data_;
 
- public:
+public:
     typedef T value_type;
 
     typedef T *iterator;
